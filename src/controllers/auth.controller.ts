@@ -113,6 +113,12 @@ export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
     
+    console.log('=== LOGIN DEBUG ===');
+    console.log('Received email:', email);
+    console.log('Received password:', password);
+    console.log('Email type:', typeof email);
+    console.log('Password type:', typeof password);
+    
     // Check if email and password exist
     if (!email || !password) {
       res.status(400).json({
@@ -122,11 +128,25 @@ export const login = async (req: Request, res: Response) => {
       return;
     }
     
-    // Find user by email
+    // With discriminators, all users are in the same collection
+    // So we only need to query the User model
+    console.log('Querying User collection (includes all discriminators)...');
     const user = await User.findOne({ email }).select('+password') as UserDocument | null;
     
+    console.log('User found:', user ? 'YES' : 'NO');
+    if (user) {
+      console.log('User details:', {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        hasPassword: !!user.password
+      });
+    }
+    
     // Check if user exists and password is correct
-    if (!user || !(await user.comparePassword(password))) {
+    if (!user) {
+      console.log('No user found with email:', email);
       res.status(401).json({
         status: 'fail',
         message: 'Incorrect email or password'
@@ -134,8 +154,24 @@ export const login = async (req: Request, res: Response) => {
       return;
     }
     
-    // If driver is not approved
+    console.log('About to compare passwords...');
+    console.log('User has comparePassword method:', typeof user.comparePassword);
+    
+    const isPasswordCorrect = await user.comparePassword(password);
+    console.log('Password comparison result:', isPasswordCorrect);
+    
+    if (!isPasswordCorrect) {
+      console.log('Password comparison failed');
+      res.status(401).json({
+        status: 'fail',
+        message: 'Incorrect email or password'
+      });
+      return;
+    }
+    
+    // Handle role-specific logic
     if (user.role === 'driver') {
+      // For drivers, we need to check the discriminator model for additional fields
       const driver = await Driver.findById(user._id) as DriverDocument | null;
       if (driver && !driver.isApproved) {
         res.status(401).json({
@@ -169,8 +205,10 @@ export const login = async (req: Request, res: Response) => {
       role: user.role
     });
     
+    console.log('Login successful for:', user.email, 'with role:', user.role);
     createSendToken(user, 200, res);
   } catch (error: any) {
+    console.error('Login error:', error);
     res.status(400).json({
       status: 'fail',
       message: error.message
@@ -211,28 +249,31 @@ export const forgotPassword = async (req: Request, res: Response) => {
       return;
     }
     
-    // Generate random token
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    // Generate a 6-digit numeric code instead of long hex string
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     
-    // Hash token and set to resetPasswordToken field
+    // Hash the code and store it
     user.passwordResetToken = crypto
       .createHash('sha256')
-      .update(resetToken)
+      .update(resetCode)
       .digest('hex');
     
     // Set token expiry (10 minutes)
     user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000);
     
+    console.log('Generated reset code:', resetCode);
+console.log('Hashed token stored:', user.passwordResetToken);
+
     // Save the user with reset token
     await user.save({ validateBeforeSave: false });
     
     try {
-      // Send email with reset token
-      await sendPasswordResetEmail(user.email, user.name, resetToken);
+      // Send email with the 6-digit code (not the hash)
+      await sendPasswordResetEmail(user.email, user.name, resetCode);
       
       res.status(200).json({
         status: 'success',
-        message: 'Reset token sent to email'
+        message: 'Reset code sent to email'
       });
     } catch (err) {
       // Reset token fields if email fails
@@ -276,6 +317,10 @@ export const resetPassword = async (req: Request, res: Response) => {
       return;
     }
     
+    console.log('User entered code:', code);
+console.log('Hashed user code:', hashedToken);
+console.log('Looking for user with email:', email);
+
     // Set new password and remove reset token fields
     user.password = password;
     user.passwordResetToken = undefined;

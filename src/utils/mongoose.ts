@@ -1,4 +1,3 @@
-// utils/mongoose.ts
 import mongoose from 'mongoose';
 
 /**
