@@ -10,9 +10,10 @@ const createRedisClient = (): Redis => {
   if (process.env.REDIS_URL) {
     console.log('🔌 Connecting to Redis via URL (Production)...');
     return new Redis(process.env.REDIS_URL, {
+      tls: {},
       maxRetriesPerRequest: 3,
       enableOfflineQueue: false,
-      lazyConnect: true,
+     
       // Reconnect if connection is lost
       reconnectOnError: (err) => {
         console.error('Redis connection error:', err);
